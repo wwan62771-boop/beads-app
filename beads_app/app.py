@@ -1,6 +1,7 @@
 import os
 import uuid
 import psycopg2
+import psycopg2.extras
 from psycopg2.extras import RealDictCursor
 from flask import Flask, request, render_template_string, redirect, url_for, send_from_directory, flash
 
@@ -42,7 +43,7 @@ try:
 except Exception as e:
     print(f"数据库初始化提示: {e}")
 
-# 后台管理页面 HTML（强兼容性一键复制与链接显示）
+# 后台管理页面 HTML（一键复制 + 输入框选中）
 ADMIN_HTML = """
 <!DOCTYPE html>
 <html lang="zh-CN">
@@ -62,7 +63,7 @@ ADMIN_HTML = """
         table { width: 100%; border-collapse: collapse; margin-top: 25px; }
         th, td { padding: 12px; border-bottom: 1px solid #eee; text-align: left; }
         th { background: #f8f9fa; color: #666; }
-        .link-input { width: 100%; min-width: 200px; padding: 6px; border: 1px solid #ddd; border-radius: 4px; background: #fdfdfd; font-size: 13px; color: #333; }
+        .link-input { width: 100%; min-width: 220px; padding: 6px; border: 1px solid #ddd; border-radius: 4px; background: #fdfdfd; font-size: 13px; color: #333; }
         .flash { padding: 10px; background: #e7f5ff; color: #1971c2; border-radius: 6px; margin-bottom: 15px; }
         .btn-delete { background: #dc3545; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; text-decoration: none; font-size: 13px; }
         .btn-copy { background: #28a745; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 13px; margin-right: 5px; white-space: nowrap; }
@@ -72,7 +73,7 @@ ADMIN_HTML = """
 </head>
 <body>
     <div class="container">
-        <h1>🛠️️ 图纸上传与管理后台</h1>
+        <h1>🛠️ 图纸上传与管理后台</h1>
         {% with messages = get_flashed_messages() %}
             {% if messages %}
                 {% for message in messages %}
@@ -99,7 +100,7 @@ ADMIN_HTML = """
                 <tr>
                     <th>名称</th>
                     <th>图片数量</th>
-                    <th>完整提取链接（可修改/复制）</th>
+                    <th>完整提取链接（可复制/长按全选）</th>
                     <th>操作</th>
                 </tr>
             </thead>
@@ -118,54 +119,4 @@ ADMIN_HTML = """
                 </tr>
                 {% else %}
                 <tr>
-                    <td colspan="4" style="text-align: center; color: #999;">暂无图纸数据</td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
-
-    <script>
-    function copyUrl(id) {
-        const inputElem = document.getElementById('input-' + id);
-        const btnElem = document.getElementById('btn-' + id);
-        
-        // 选中输入框文本
-        inputElem.select();
-        inputElem.setSelectionRange(0, 99999); // 兼容移动端 Safari
-        
-        try {
-            // 使用 execCommand 兼顾更多旧平台与手机端
-            const successful = document.execCommand('copy');
-            if (successful) {
-                btnElem.innerText = '✅ 已复制';
-                setTimeout(() => { btnElem.innerText = '📋 复制链接'; }, 2000);
-            } else {
-                // 回退原生 clipboard API
-                navigator.clipboard.writeText(inputElem.value).then(() => {
-                    btnElem.innerText = '✅ 已复制';
-                    setTimeout(() => { btnElem.innerText = '📋 复制链接'; }, 2000);
-                }).catch(() => {
-                    alert('请长按选中框内链接直接复制：\n' + inputElem.value);
-                });
-            }
-        } catch (err) {
-            alert('请长按选中框内链接直接复制：\n' + inputElem.value);
-        }
-    }
-    </script>
-</body>
-</html>
-"""
-
-# 客户下载提取页面 HTML
-DOWNLOAD_HTML = """
-<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>拼豆图纸下载 - {{ pattern.title }}</title>
-    <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f8f9fa; margin: 0; padding: 20px; text-align: center; }
-        .container { max-width: 600px; margin: 0 auto; background: #fff; padding: 25px; border-radius: 12px; box-shadow: 0 4px
+                    <td colspan="4" style="
