@@ -43,37 +43,65 @@ try:
 except Exception as e:
     print(f"数据库初始化提示: {e}")
 
-# 后台管理页面 HTML（输入框全选 + 多重兼容复制）
+# 后台管理页面 HTML（完美适配电脑与手机移动端）
 ADMIN_HTML = """
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>图纸上传与管理后台</title>
     <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f0f2f5; margin: 0; padding: 20px; }
-        .container { max-width: 950px; margin: 0 auto; background: #fff; padding: 30px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
-        h1 { font-size: 24px; color: #333; margin-bottom: 20px; }
-        .form-group { margin-bottom: 15px; }
-        label { display: block; font-weight: bold; margin-bottom: 5px; color: #555; }
-        input[type="text"], input[type="file"] { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 6px; box-sizing: border-box; }
-        .btn { background: #007bff; color: white; border: none; padding: 12px 20px; border-radius: 6px; cursor: pointer; font-size: 16px; width: 100%; }
-        .btn:hover { background: #0056b3; }
-        table { width: 100%; border-collapse: collapse; margin-top: 25px; }
-        th, td { padding: 12px; border-bottom: 1px solid #eee; text-align: left; }
-        th { background: #f8f9fa; color: #666; }
-        .link-input { width: 100%; min-width: 240px; padding: 8px; border: 1px solid #007bff; border-radius: 6px; background: #f4f8ff; font-size: 13px; color: #0056b3; font-weight: 500; }
-        .flash { padding: 10px; background: #e7f5ff; color: #1971c2; border-radius: 6px; margin-bottom: 15px; }
-        .btn-delete { background: #dc3545; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; text-decoration: none; font-size: 13px; }
-        .btn-copy { background: #28a745; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 13px; margin-right: 5px; white-space: nowrap; }
-        .btn-copy:hover { background: #218838; }
-        .action-td { white-space: nowrap; }
+        * { box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: #f4f6f8; margin: 0; padding: 12px; color: #333; }
+        .container { max-width: 900px; margin: 0 auto; background: #fff; padding: 20px; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.06); }
+        h1 { font-size: 20px; color: #222; margin-top: 0; margin-bottom: 16px; text-align: center; }
+        h2 { font-size: 16px; color: #444; margin-top: 24px; margin-bottom: 12px; border-bottom: 2px solid #007bff; padding-bottom: 6px; }
+        .form-group { margin-bottom: 14px; }
+        label { display: block; font-weight: 600; margin-bottom: 6px; color: #555; font-size: 14px; }
+        input[type="text"], input[type="file"] { width: 100%; padding: 12px; border: 1px solid #ccc; border-radius: 8px; font-size: 15px; background: #fff; }
+        .btn-submit { background: #007bff; color: white; border: none; padding: 14px; border-radius: 8px; cursor: pointer; font-size: 16px; font-weight: bold; width: 100%; }
+        .btn-submit:active { background: #0056b3; }
+        .flash { padding: 10px 14px; background: #e7f5ff; color: #1971c2; border-radius: 8px; margin-bottom: 16px; font-size: 14px; }
+        
+        /* 桌面端表格样式 */
+        .table-wrapper { width: 100%; overflow-x: auto; }
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        th, td { padding: 12px 10px; border-bottom: 1px solid #eee; text-align: left; font-size: 14px; }
+        th { background: #f8f9fa; color: #666; font-weight: 600; }
+        
+        /* 链接输入框 */
+        .link-input { width: 100%; padding: 10px; border: 1px solid #007bff; border-radius: 6px; background: #f4f8ff; font-size: 13px; color: #0056b3; -webkit-appearance: none; }
+        
+        /* 按钮组 */
+        .btn-copy { background: #28a745; color: white; border: none; padding: 8px 14px; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: bold; }
+        .btn-delete { background: #dc3545; color: white; border: none; padding: 8px 14px; border-radius: 6px; cursor: pointer; text-decoration: none; font-size: 13px; display: inline-block; }
+
+        /* 📱 手机端适配样式 (屏幕宽度小于 650px 时触发) */
+        @media (max-width: 650px) {
+            body { padding: 8px; }
+            .container { padding: 15px; border-radius: 10px; }
+            h1 { font-size: 18px; }
+            
+            /* 隐藏传统表格头 */
+            table, thead, tbody, th, td, tr { display: block; }
+            thead { display: none; }
+            
+            /* 转换每一行为手机卡片 */
+            tr { background: #fafafa; border: 1px solid #e2e8f0; border-radius: 10px; margin-bottom: 12px; padding: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.04); }
+            td { padding: 6px 0; border: none; }
+            td:nth-child(1) { font-size: 16px; color: #111; padding-bottom: 4px; }
+            td:nth-child(2) { font-size: 13px; color: #666; margin-bottom: 8px; }
+            
+            .card-actions { display: flex; gap: 8px; margin-top: 10px; }
+            .btn-copy, .btn-delete { flex: 1; text-align: center; padding: 10px; font-size: 14px; }
+        }
     </style>
 </head>
 <body>
     <div class="container">
         <h1>🛠️ 图纸上传与管理后台</h1>
+        
         {% with messages = get_flashed_messages() %}
             {% if messages %}
                 {% for message in messages %}
@@ -84,46 +112,50 @@ ADMIN_HTML = """
         
         <form method="POST" action="/upload" enctype="multipart/form-data">
             <div class="form-group">
-                <label>图纸名称/备注：</label>
-                <input type="text" name="title" placeholder="例如：宝可梦皮卡丘" required>
+                <label>图纸名称 / 备注：</label>
+                <input type="text" name="title" placeholder="例如：复古狗狗四宫格" required>
             </div>
             <div class="form-group">
-                <label>选择图片（可多选）：</label>
+                <label>选择图纸图片（可多选）：</label>
                 <input type="file" name="files" multiple required>
             </div>
-            <button type="submit" class="btn">🚀 立即上传并生成下载链接</button>
+            <button type="submit" class="btn-submit">🚀 上传并生成生成提取链接</button>
         </form>
 
         <h2>📂 已上传图纸列表</h2>
-        <table>
-            <thead>
-                <tr>
-                    <th>名称</th>
-                    <th>图片数量</th>
-                    <th>完整提取链接（点框内全选/复制）</th>
-                    <th>操作</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for item in patterns %}
-                <tr>
-                    <td><strong>{{ item.title }}</strong></td>
-                    <td>{{ item.filenames.split(',')|length }} 张</td>
-                    <td>
-                        <input type="text" class="link-input" id="input-{{ item.id }}" readonly value="https://wanwan-dwt0.onrender.com/d/{{ item.id }}" onclick="this.select(); focus();">
-                    </td>
-                    <td class="action-td">
-                        <button class="btn-copy" id="btn-{{ item.id }}" onclick="copyUrl('{{ item.id }}')">📋 复制</button>
-                        <a class="btn-delete" href="/delete/{{ item.id }}" onclick="return confirm('确定要删除该图纸吗？')">删除</a>
-                    </td>
-                </tr>
-                {% else %}
-                <tr>
-                    <td colspan="4" style="text-align: center; color: #999;">暂无图纸数据</td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
+        <div class="table-wrapper">
+            <table>
+                <thead>
+                    <tr>
+                        <th>名称</th>
+                        <th>图片数</th>
+                        <th>客户提取链接</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in patterns %}
+                    <tr>
+                        <td><strong>{{ item.title }}</strong></td>
+                        <td>包含 {{ item.filenames.split(',')|length }} 张图纸</td>
+                        <td>
+                            <input type="text" class="link-input" id="input-{{ item.id }}" readonly value="https://wanwan-dwt0.onrender.com/d/{{ item.id }}" onclick="this.select();">
+                        </td>
+                        <td>
+                            <div class="card-actions">
+                                <button class="btn-copy" id="btn-{{ item.id }}" onclick="copyUrl('{{ item.id }}')">📋 复制链接</button>
+                                <a class="btn-delete" href="/delete/{{ item.id }}" onclick="return confirm('确定要删除该图纸吗？')">删除</a>
+                            </div>
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="4" style="text-align: center; color: #999; padding: 20px;">暂无图纸数据</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
     </div>
 
     <script>
@@ -132,7 +164,7 @@ ADMIN_HTML = """
         const btnElem = document.getElementById('btn-' + id);
         
         inputElem.select();
-        inputElem.setSelectionRange(0, 99999);
+        inputElem.setSelectionRange(0, 99999); // 兼容 iOS Safari
         
         let copied = false;
         try {
@@ -143,17 +175,17 @@ ADMIN_HTML = """
 
         if (copied) {
             btnElem.innerText = '✅ 已复制';
-            setTimeout(() => { btnElem.innerText = '📋 复制'; }, 2000);
+            setTimeout(() => { btnElem.innerText = '📋 复制链接'; }, 2000);
         } else {
             if (navigator.clipboard && window.isSecureContext) {
                 navigator.clipboard.writeText(inputElem.value).then(() => {
                     btnElem.innerText = '✅ 已复制';
-                    setTimeout(() => { btnElem.innerText = '📋 复制'; }, 2000);
+                    setTimeout(() => { btnElem.innerText = '📋 复制链接'; }, 2000);
                 }).catch(() => {
-                    prompt('请按 Ctrl+C / 长按复制链接：', inputElem.value);
+                    prompt('手机请长按框内链接复制：', inputElem.value);
                 });
             } else {
-                prompt('请按 Ctrl+C / 长按复制链接：', inputElem.value);
+                prompt('手机请长按框内链接复制：', inputElem.value);
             }
         }
     }
@@ -162,36 +194,39 @@ ADMIN_HTML = """
 </html>
 """
 
-# 客户下载提取页面 HTML
+# 客户提取页面 HTML（手机专属大图流展示）
 DOWNLOAD_HTML = """
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>拼豆图纸下载 - {{ pattern.title }}</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>{{ pattern.title }} - 图纸提取下载</title>
     <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f8f9fa; margin: 0; padding: 20px; text-align: center; }
-        .container { max-width: 600px; margin: 0 auto; background: #fff; padding: 25px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.08); }
-        h1 { font-size: 22px; color: #333; margin-bottom: 10px; }
-        p { color: #666; font-size: 14px; margin-bottom: 20px; }
-        .img-card { margin-bottom: 20px; border: 1px solid #eee; border-radius: 8px; padding: 10px; background: #fafafa; }
-        .img-card img { max-width: 100%; height: auto; border-radius: 6px; }
-        .download-btn { display: inline-block; margin-top: 8px; padding: 8px 16px; background: #28a745; color: white; text-decoration: none; border-radius: 6px; font-size: 14px; }
-        .download-btn:hover { background: #218838; }
+        * { box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: #f8f9fa; margin: 0; padding: 12px; text-align: center; color: #333; }
+        .container { max-width: 600px; margin: 0 auto; background: #fff; padding: 18px; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.06); }
+        h1 { font-size: 20px; color: #222; margin-top: 5px; margin-bottom: 8px; word-break: break-all; }
+        .tip-banner { background: #fff3cd; color: #856404; padding: 10px; border-radius: 8px; font-size: 13px; margin-bottom: 18px; text-align: left; line-height: 1.5; }
+        .img-card { margin-bottom: 20px; border: 1px solid #edf2f7; border-radius: 10px; padding: 10px; background: #ffffff; box-shadow: 0 1px 4px rgba(0,0,0,0.04); }
+        .img-card img { width: 100%; height: auto; border-radius: 6px; display: block; margin-bottom: 10px; }
+        .download-btn { display: block; width: 100%; padding: 12px; background: #28a745; color: white; text-decoration: none; border-radius: 8px; font-size: 15px; font-weight: bold; text-align: center; }
+        .download-btn:active { background: #218838; }
     </style>
 </head>
 <body>
     <div class="container">
         <h1>✨ {{ pattern.title }} ✨</h1>
-        <p>长按上方图片可保存，或点击下方按钮直接下载高清晰度原图：</p>
+        <div class="tip-banner">
+            💡 <strong>保存提示：</strong><br>
+            • <strong>手机端：</strong>可直接长按下方图纸图片，选择“保存到相册”。<br>
+            • <strong>电脑端/原图：</strong>可点击图片下方的绿色按钮直接下载。
+        </div>
         
         {% for img in filenames %}
         <div class="img-card">
-            <img src="/uploads/{{ img }}" alt="图纸">
-            <div>
-                <a class="download-btn" href="/uploads/{{ img }}" download>📥 点击下载此张图纸</a>
-            </div>
+            <img src="/uploads/{{ img }}" alt="图纸图片">
+            <a class="download-btn" href="/uploads/{{ img }}" download>📥 点击下载高清原图</a>
         </div>
         {% endfor %}
     </div>
@@ -240,7 +275,7 @@ def upload():
         cur.close()
         conn.close()
         
-        flash('上传成功！数据已持久化保存至数据库。')
+        flash('上传成功！图纸及链接已永久保存。')
     return redirect(url_for('admin'))
 
 @app.route('/d/<pattern_id>')
