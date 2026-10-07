@@ -1,17 +1,13 @@
 import os
 import uuid
+import base64
 import psycopg2
 import psycopg2.extras
 from psycopg2.extras import RealDictCursor
-from flask import Flask, request, render_template_string, redirect, url_for, send_from_directory, flash
+from flask import Flask, request, render_template_string, redirect, url_for, Response, flash
 
 app = Flask(__name__)
 app.secret_key = 'beads_secret_key'
-
-# 文件上传配置
-UPLOAD_FOLDER = os.path.join(os.getcwd(), 'uploads')
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
 # 获取数据库连接
 def get_db_connection():
@@ -21,16 +17,25 @@ def get_db_connection():
     conn = psycopg2.connect(db_url)
     return conn
 
-# 初始化数据库表结构
+# 初始化数据库表结构（包含图片二进制存储表）
 def init_db():
     conn = get_db_connection()
     cur = conn.cursor()
+    # 图纸元数据表
     cur.execute('''
         CREATE TABLE IF NOT EXISTS patterns (
             id VARCHAR(10) PRIMARY KEY,
             title VARCHAR(255) NOT NULL,
-            filenames TEXT NOT NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+    ''')
+    # 图纸图片二进制存储表（数据库持久存储图片）
+    cur.execute('''
+        CREATE TABLE IF NOT EXISTS pattern_images (
+            id VARCHAR(64) PRIMARY KEY,
+            pattern_id VARCHAR(10) REFERENCES patterns(id) ON DELETE CASCADE,
+            image_data BYTEA NOT NULL,
+            mimetype VARCHAR(32) NOT NULL
         );
     ''')
     conn.commit()
@@ -43,7 +48,7 @@ try:
 except Exception as e:
     print(f"数据库初始化提示: {e}")
 
-# 后台管理页面 HTML（完美适配电脑与手机移动端）
+# 后台管理页面 HTML
 ADMIN_HTML = """
 <!DOCTYPE html>
 <html lang="zh-CN">
@@ -64,35 +69,26 @@ ADMIN_HTML = """
         .btn-submit:active { background: #0056b3; }
         .flash { padding: 10px 14px; background: #e7f5ff; color: #1971c2; border-radius: 8px; margin-bottom: 16px; font-size: 14px; }
         
-        /* 桌面端表格样式 */
         .table-wrapper { width: 100%; overflow-x: auto; }
         table { width: 100%; border-collapse: collapse; margin-top: 10px; }
         th, td { padding: 12px 10px; border-bottom: 1px solid #eee; text-align: left; font-size: 14px; }
         th { background: #f8f9fa; color: #666; font-weight: 600; }
         
-        /* 链接输入框 */
         .link-input { width: 100%; padding: 10px; border: 1px solid #007bff; border-radius: 6px; background: #f4f8ff; font-size: 13px; color: #0056b3; -webkit-appearance: none; }
         
-        /* 按钮组 */
         .btn-copy { background: #28a745; color: white; border: none; padding: 8px 14px; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: bold; }
         .btn-delete { background: #dc3545; color: white; border: none; padding: 8px 14px; border-radius: 6px; cursor: pointer; text-decoration: none; font-size: 13px; display: inline-block; }
 
-        /* 📱 手机端适配样式 (屏幕宽度小于 650px 时触发) */
         @media (max-width: 650px) {
             body { padding: 8px; }
             .container { padding: 15px; border-radius: 10px; }
             h1 { font-size: 18px; }
-            
-            /* 隐藏传统表格头 */
             table, thead, tbody, th, td, tr { display: block; }
             thead { display: none; }
-            
-            /* 转换每一行为手机卡片 */
             tr { background: #fafafa; border: 1px solid #e2e8f0; border-radius: 10px; margin-bottom: 12px; padding: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.04); }
             td { padding: 6px 0; border: none; }
             td:nth-child(1) { font-size: 16px; color: #111; padding-bottom: 4px; }
             td:nth-child(2) { font-size: 13px; color: #666; margin-bottom: 8px; }
-            
             .card-actions { display: flex; gap: 8px; margin-top: 10px; }
             .btn-copy, .btn-delete { flex: 1; text-align: center; padding: 10px; font-size: 14px; }
         }
@@ -137,7 +133,7 @@ ADMIN_HTML = """
                     {% for item in patterns %}
                     <tr>
                         <td><strong>{{ item.title }}</strong></td>
-                        <td>包含 {{ item.filenames.split(',')|length }} 张图纸</td>
+                        <td>包含 {{ item.img_count }} 张图纸</td>
                         <td>
                             <input type="text" class="link-input" id="input-{{ item.id }}" readonly value="https://wanwan-dwt0.onrender.com/d/{{ item.id }}" onclick="this.select();">
                         </td>
@@ -164,7 +160,7 @@ ADMIN_HTML = """
         const btnElem = document.getElementById('btn-' + id);
         
         inputElem.select();
-        inputElem.setSelectionRange(0, 99999); // 兼容 iOS Safari
+        inputElem.setSelectionRange(0, 99999);
         
         let copied = false;
         try {
@@ -194,7 +190,7 @@ ADMIN_HTML = """
 </html>
 """
 
-# 客户提取页面 HTML（手机专属大图流展示）
+# 客户提取页面 HTML
 DOWNLOAD_HTML = """
 <!DOCTYPE html>
 <html lang="zh-CN">
@@ -223,10 +219,10 @@ DOWNLOAD_HTML = """
             • <strong>电脑端/原图：</strong>可点击图片下方的绿色按钮直接下载。
         </div>
         
-        {% for img in filenames %}
+        {% for img_id in image_ids %}
         <div class="img-card">
-            <img src="/uploads/{{ img }}" alt="图纸图片">
-            <a class="download-btn" href="/uploads/{{ img }}" download>📥 点击下载高清原图</a>
+            <img src="/img/{{ img_id }}" alt="图纸图片">
+            <a class="download-btn" href="/img/{{ img_id }}" download="图纸_{{ loop.index }}.png">📥 点击下载高清原图</a>
         </div>
         {% endfor %}
     </div>
@@ -238,7 +234,13 @@ DOWNLOAD_HTML = """
 def admin():
     conn = get_db_connection()
     cur = conn.cursor(cursor_factory=RealDictCursor)
-    cur.execute("SELECT * FROM patterns ORDER BY created_at DESC;")
+    cur.execute("""
+        SELECT p.id, p.title, p.created_at, COUNT(i.id) as img_count 
+        FROM patterns p 
+        LEFT JOIN pattern_images i ON p.id = i.pattern_id 
+        GROUP BY p.id, p.title, p.created_at 
+        ORDER BY p.created_at DESC;
+    """)
     patterns = cur.fetchall()
     cur.close()
     conn.close()
@@ -253,29 +255,37 @@ def upload():
         flash('请填写名称并选择图片！')
         return redirect(url_for('admin'))
         
-    saved_filenames = []
+    pattern_id = uuid.uuid4().hex[:8]
+    
+    conn = get_db_connection()
+    cur = conn.cursor()
+    
+    # 写入图纸信息
+    cur.execute("INSERT INTO patterns (id, title) VALUES (%s, %s);", (pattern_id, title))
+    
+    # 逐张写入图片数据到数据库（彻底持久化）
+    uploaded_count = 0
     for file in files:
         if file.filename != '':
-            ext = os.path.splitext(file.filename)[1]
-            unique_filename = f"{uuid.uuid4().hex[:8]}{ext}"
-            file.save(os.path.join(app.config['UPLOAD_FOLDER'], unique_filename))
-            saved_filenames.append(unique_filename)
+            img_bytes = file.read()
+            mimetype = file.mimetype or 'image/png'
+            image_id = uuid.uuid4().hex[:12]
             
-    if saved_filenames:
-        pattern_id = uuid.uuid4().hex[:8]
-        filenames_str = ",".join(saved_filenames)
+            cur.execute(
+                "INSERT INTO pattern_images (id, pattern_id, image_data, mimetype) VALUES (%s, %s, %s, %s);",
+                (image_id, pattern_id, psycopg2.Binary(img_bytes), mimetype)
+            )
+            uploaded_count += 1
+            
+    conn.commit()
+    cur.close()
+    conn.close()
+    
+    if uploaded_count > 0:
+        flash('上传成功！所有图片已永久安全写入数据库，永不丢失！')
+    else:
+        flash('未检测到有效的图片上传。')
         
-        conn = get_db_connection()
-        cur = conn.cursor()
-        cur.execute(
-            "INSERT INTO patterns (id, title, filenames) VALUES (%s, %s, %s);",
-            (pattern_id, title, filenames_str)
-        )
-        conn.commit()
-        cur.close()
-        conn.close()
-        
-        flash('上传成功！图纸及链接已永久保存。')
     return redirect(url_for('admin'))
 
 @app.route('/d/<pattern_id>')
@@ -284,39 +294,44 @@ def download_page(pattern_id):
     cur = conn.cursor(cursor_factory=RealDictCursor)
     cur.execute("SELECT * FROM patterns WHERE id = %s;", (pattern_id,))
     pattern = cur.fetchone()
+    
+    if not pattern:
+        cur.close()
+        conn.close()
+        return "该图纸链接不存在或已被删除", 404
+        
+    cur.execute("SELECT id FROM pattern_images WHERE pattern_id = %s;", (pattern_id,))
+    images = cur.fetchall()
     cur.close()
     conn.close()
     
-    if not pattern:
-        return "该图纸链接不存在或已被删除", 404
-        
-    filenames = pattern['filenames'].split(',')
-    return render_template_string(DOWNLOAD_HTML, pattern=pattern, filenames=filenames)
+    image_ids = [img['id'] for img in images]
+    return render_template_string(DOWNLOAD_HTML, pattern=pattern, image_ids=image_ids)
 
-@app.route('/uploads/<filename>')
-def uploaded_file(filename):
-    return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
+@app.route('/img/<image_id>')
+def get_image(image_id):
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+    cur.execute("SELECT image_data, mimetype FROM pattern_images WHERE id = %s;", (image_id,))
+    img = cur.fetchone()
+    cur.close()
+    conn.close()
+    
+    if not img:
+        return "图片不存在", 404
+        
+    return Response(bytes(img['image_data']), mimetype=img['mimetype'])
 
 @app.route('/delete/<pattern_id>')
 def delete_pattern(pattern_id):
     conn = get_db_connection()
-    cur = conn.cursor(cursor_factory=RealDictCursor)
-    cur.execute("SELECT filenames FROM patterns WHERE id = %s;", (pattern_id,))
-    pattern = cur.fetchone()
-    
-    if pattern:
-        filenames = pattern['filenames'].split(',')
-        for fn in filenames:
-            file_path = os.path.join(app.config['UPLOAD_FOLDER'], fn)
-            if os.path.exists(file_path):
-                os.remove(file_path)
-                
-        cur.execute("DELETE FROM patterns WHERE id = %s;", (pattern_id,))
-        conn.commit()
-        flash('删除成功！')
-        
+    cur = conn.cursor()
+    # 联级删除关联图片与图纸信息
+    cur.execute("DELETE FROM patterns WHERE id = %s;", (pattern_id,))
+    conn.commit()
     cur.close()
     conn.close()
+    flash('删除成功！数据库已清理对应数据。')
     return redirect(url_for('admin'))
 
 if __name__ == '__main__':
