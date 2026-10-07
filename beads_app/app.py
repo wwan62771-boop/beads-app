@@ -17,7 +17,7 @@ def get_db_connection():
     conn = psycopg2.connect(db_url)
     return conn
 
-# 初始化数据库表结构（包含图片二进制存储表）
+# 初始化数据库表结构（兼容旧表字段）
 def init_db():
     conn = get_db_connection()
     cur = conn.cursor()
@@ -26,6 +26,7 @@ def init_db():
         CREATE TABLE IF NOT EXISTS patterns (
             id VARCHAR(10) PRIMARY KEY,
             title VARCHAR(255) NOT NULL,
+            filenames TEXT DEFAULT 'db_stored',
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
     ''')
@@ -115,7 +116,7 @@ ADMIN_HTML = """
                 <label>选择图纸图片（可多选）：</label>
                 <input type="file" name="files" multiple required>
             </div>
-            <button type="submit" class="btn-submit">🚀 上传并生成生成提取链接</button>
+            <button type="submit" class="btn-submit">🚀 上传并生成提取链接</button>
         </form>
 
         <h2>📂 已上传图纸列表</h2>
@@ -260,8 +261,8 @@ def upload():
     conn = get_db_connection()
     cur = conn.cursor()
     
-    # 写入图纸信息
-    cur.execute("INSERT INTO patterns (id, title) VALUES (%s, %s);", (pattern_id, title))
+    # 写入图纸主表（传入 filenames='db_stored' 以兼容旧表非空约束）
+    cur.execute("INSERT INTO patterns (id, title, filenames) VALUES (%s, %s, %s);", (pattern_id, title, 'db_stored'))
     
     # 逐张写入图片数据到数据库（彻底持久化）
     uploaded_count = 0
@@ -326,7 +327,7 @@ def get_image(image_id):
 def delete_pattern(pattern_id):
     conn = get_db_connection()
     cur = conn.cursor()
-    # 联级删除关联图片与图纸信息
+    # 级联删除关联图片与图纸信息
     cur.execute("DELETE FROM patterns WHERE id = %s;", (pattern_id,))
     conn.commit()
     cur.close()
