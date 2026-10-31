@@ -20,7 +20,7 @@ def register(app,connect):
         return len(token)>=32 and hmac.compare_digest(request.headers.get('Authorization',''),'Bearer '+token)
     def signer():
         password=os.environ.get('MATERIAL_READER_PASSWORD','');token=os.environ.get('LIBRARY_PUBLISH_TOKEN','')
-        if len(password)<16 or len(token)<32:return None
+        if not ((len(password)==6 and password.isascii() and password.isdigit()) or len(password)>=16) or len(token)<32:return None
         return URLSafeTimedSerializer(hashlib.sha256((password+'\0'+token).encode()).hexdigest(),salt='materials-reader-v1')
     def ticket():
         s=signer()
