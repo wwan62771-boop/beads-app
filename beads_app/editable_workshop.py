@@ -1,6 +1,5 @@
 """Private editable workspace backed by the existing PostgreSQL service."""
-import hashlib,hmac,json,os,re,secrets,time
-from collections import defaultdict,deque
+import hashlib,hmac,json,os,re,secrets
 from functools import wraps
 from pathlib import Path
 from flask import request,jsonify,make_response,redirect,render_template_string,send_file
@@ -10,11 +9,10 @@ from cloud_edit_bundle import validate_bundle,LIMIT
 
 ROOT=Path(__file__).resolve().parent
 STYLE="""body{margin:0;background:#f7f8f5;color:#34463e;font:15px/1.7 system-ui,sans-serif}main{max-width:900px;margin:40px auto;padding:20px}article,form.login{background:white;padding:24px;border:1px solid #d8e1da;border-radius:16px;margin:16px 0}button,a.button,input{font:inherit;padding:10px 16px;border:1px solid #b5c7bc;border-radius:9px;background:white;color:#426858}a.button{text-decoration:none;display:inline-block;margin:4px}label{display:block;margin:16px 0}p{overflow-wrap:anywhere}.error{color:#a33}h1{font-size:26px}h2{font-size:19px}"""
-LOGIN="""<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>云端改图登录</title><style>{{style}}</style><main><form method="post" class="login"><h1>我的云端改图</h1><p>使用首次上传时的本机管理中心登录密码。</p><label>登录密码 <input name="password" type="password" required autocomplete="current-password"></label><p class="error">{{error}}</p><button>登录</button></form></main></html>"""
+LOGIN="""<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>云端改图登录</title><style>{{style}}</style><main><form method="post" class="login"><h1>我的云端改图</h1><p>请输入云端改图密码。</p><label>登录密码 <input name="password" type="password" required autocomplete="current-password"></label><p class="error">{{error}}</p><button>登录</button></form></main></html>"""
 PAGE="""<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>我的云端改图</title><style>{{style}}</style><main><h1>我的云端改图</h1><p>这里显示从本机主动上传的作品。选择规格后，打开工坊继续编辑。</p><form method="post" action="/editor/logout"><input type="hidden" name="csrf" value="{{csrf}}"><button>退出登录</button></form>{% for item in items %}<article><h2>{{item.bundle.name}}</h2><p>{{item.bundle.series}} · 云端第 {{item.revision}} 版</p>{% for entry in item.bundle.entries %}<a class="button" href="/editor/workshop?work={{item.id}}&entry={{loop.index0}}">{{entry.project.W}} × {{entry.project.H}} 格 · {{entry.project.paletteId}} · 继续编辑</a>{% endfor %}</article>{% else %}<p>还没有上传的作品，请在本机管理中心打开一款作品，点击“上传本款到云端”。</p>{% endfor %}</main></html>"""
 
 def register(app,connect):
-    failures=defaultdict(deque)
     def token():return os.environ.get('LIBRARY_PUBLISH_TOKEN','')
     def bearer():return len(token())>=32 and hmac.compare_digest(request.headers.get('Authorization',''),'Bearer '+token())
     def serializer():return URLSafeTimedSerializer(hashlib.sha256(token().encode()).hexdigest(),salt='private-editor-v1')
@@ -64,25 +62,24 @@ def register(app,connect):
         try:
             with conn:
                 with conn.cursor() as cur:
-                    schema(cur);cur.execute('INSERT INTO editable_owner VALUES(1,%s) ON CONFLICT(id) DO NOTHING',(value,))
+                    schema(cur)
+                    if (request.json or {}).get('reset_password') is True:
+                        cur.execute('INSERT INTO editable_owner VALUES(1,%s) ON CONFLICT(id) DO UPDATE SET password_hash=excluded.password_hash',(value,))
+                    else:
+                        cur.execute('INSERT INTO editable_owner VALUES(1,%s) ON CONFLICT(id) DO NOTHING',(value,))
         finally:conn.close()
         return jsonify(ok=True)
     @app.route('/editor/login',methods=['GET','POST'])
     def login():
         error=''
         if request.method=='POST':
-            ip=request.remote_addr;now=time.time();queue=failures[ip]
-            while queue and now-queue[0]>900:queue.popleft()
-            if len(queue)>=8:error='尝试次数过多，请15分钟后再试。'
-            else:
-                password_hash=owner() if len(token())>=32 else None
-                password=request.form.get('password','')[:512]
-                if password_hash and check_password_hash(password_hash,password):
-                    failures.pop(ip,None)
-                    response=make_response(redirect('/editor'))
-                    response.set_cookie('private_editor',serializer().dumps(dict(owner=hashlib.sha256(password_hash.encode()).hexdigest(),csrf=secrets.token_urlsafe(32))),max_age=86400,secure=True,httponly=True,samesite='Strict',path='/')
-                    return response
-                queue.append(now);error='密码不正确，或本机尚未上传作品。'
+            password_hash=owner() if len(token())>=32 else None
+            password=request.form.get('password','')[:512]
+            if password_hash and check_password_hash(password_hash,password):
+                response=make_response(redirect('/editor'))
+                response.set_cookie('private_editor',serializer().dumps(dict(owner=hashlib.sha256(password_hash.encode()).hexdigest(),csrf=secrets.token_urlsafe(32))),max_age=86400,secure=True,httponly=True,samesite='Strict',path='/')
+                return response
+            error='密码不正确，请重新输入。'
         return render_template_string(LOGIN,style=STYLE,error=error)
     @app.post('/editor/logout')
     def logout():
