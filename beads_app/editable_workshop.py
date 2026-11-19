@@ -1,16 +1,17 @@
 """Private editable workspace backed by the existing PostgreSQL service."""
-import hashlib,hmac,json,os,re,secrets
+import base64,hashlib,hmac,io,json,os,re,secrets
 from functools import wraps
 from pathlib import Path
 from flask import request,jsonify,make_response,redirect,render_template_string,send_file
 from itsdangerous import URLSafeTimedSerializer,BadSignature,SignatureExpired
 from werkzeug.security import check_password_hash
+from PIL import Image
 from cloud_edit_bundle import validate_bundle,LIMIT
 
 ROOT=Path(__file__).resolve().parent
-STYLE="""body{margin:0;background:#f7f8f5;color:#34463e;font:15px/1.7 system-ui,sans-serif}main{max-width:900px;margin:40px auto;padding:20px}article,form.login{background:white;padding:24px;border:1px solid #d8e1da;border-radius:16px;margin:16px 0}button,a.button,input{font:inherit;padding:10px 16px;border:1px solid #b5c7bc;border-radius:9px;background:white;color:#426858}a.button{text-decoration:none;display:inline-block;margin:4px}label{display:block;margin:16px 0}p{overflow-wrap:anywhere}.error{color:#a33}h1{font-size:26px}h2{font-size:19px}"""
+STYLE="""body{margin:0;background:#f7f8f5;color:#34463e;font:15px/1.7 system-ui,sans-serif}main{max-width:900px;margin:40px auto;padding:20px}article,form.login{background:white;padding:24px;border:1px solid #d8e1da;border-radius:16px;margin:16px 0}button,a.button,input{font:inherit;padding:10px 16px;border:1px solid #b5c7bc;border-radius:9px;background:white;color:#426858}a.button{text-decoration:none;display:inline-block;margin:4px}label{display:block;margin:16px 0}p{overflow-wrap:anywhere}.error{color:#a33}h1{font-size:26px}h2{font-size:19px}.work-card{display:flex;gap:20px;align-items:center}.work-thumb{width:120px;height:140px;object-fit:contain;background:#f5f6f2;border-radius:10px;flex-shrink:0}.work-info{min-width:0}@media(max-width:500px){.work-card{gap:12px;padding:16px}.work-thumb{width:84px;height:108px}}"""
 LOGIN="""<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>云端改图登录</title><style>{{style}}</style><main><form method="post" class="login"><h1>我的云端改图</h1><p>请输入云端改图密码。</p><label>登录密码 <input name="password" type="password" required autocomplete="current-password"></label><p class="error">{{error}}</p><button>登录</button></form></main></html>"""
-PAGE="""<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>我的云端改图</title><style>{{style}}</style><main><h1>我的云端改图</h1><p>这里显示从本机主动上传的作品。选择规格后，打开工坊继续编辑。</p><form method="post" action="/editor/logout"><input type="hidden" name="csrf" value="{{csrf}}"><button>退出登录</button></form>{% for item in items %}<article><h2>{{item.bundle.name}}</h2><p>{{item.bundle.series}} · 云端第 {{item.revision}} 版</p>{% for entry in item.bundle.entries %}<a class="button" href="/editor/workshop?work={{item.id}}&entry={{loop.index0}}">{{entry.project.W}} × {{entry.project.H}} 格 · {{entry.project.paletteId}} · 继续编辑</a>{% endfor %}</article>{% else %}<p>还没有上传的作品，请在本机管理中心打开一款作品，点击“上传本款到云端”。</p>{% endfor %}</main></html>"""
+PAGE="""<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>我的云端改图</title><style>{{style}}</style><main><h1>我的云端改图</h1><p>在这里新建图纸，或继续编辑从本机上传的作品。选择规格后，打开工坊继续编辑。</p><a class="button" href="/editor/workshop?new=1">＋ 新建图纸 / 上传底图</a><form method="post" action="/editor/logout"><input type="hidden" name="csrf" value="{{csrf}}"><button>退出登录</button></form>{% for item in items %}<article class="work-card"><img class="work-thumb" src="/editor-api/works/{{item.id}}/thumbnail" alt="{{item.bundle.name}}" loading="lazy"><div class="work-info"><h2>{{item.bundle.name}}</h2><p>{{item.bundle.series}} · 云端第 {{item.revision}} 版</p>{% for entry in item.bundle.entries %}<a class="button" href="/editor/workshop?work={{item.id}}&entry={{loop.index0}}">{{entry.project.W}} × {{entry.project.H}} 格 · {{entry.project.paletteId}} · 继续编辑</a>{% endfor %}</div></article>{% else %}<p>还没有云端作品，点击“新建图纸”开始，或从本机上传作品。</p>{% endfor %}</main></html>"""
 
 def register(app,connect):
     def token():return os.environ.get('LIBRARY_PUBLISH_TOKEN','')
@@ -107,6 +108,23 @@ def register(app,connect):
     @protected
     def works():
         return jsonify(items=[dict(id=item['id'],revision=item['revision'],name=item['bundle']['name'],series=item['bundle'].get('series',''),specs=len(item['bundle']['entries'])) for item in read_works()])
+    @app.get('/editor-api/works/<wid>/thumbnail')
+    @protected
+    def thumbnail(wid):
+        if not re.fullmatch('[a-f0-9]{32}',wid):return jsonify(error='作品编号无效。'),400
+        conn=connect()
+        try:
+            with conn:
+                with conn.cursor() as cur:
+                    schema(cur)
+                    cur.execute("SELECT bundle::jsonb->'entries'->0->>'png' FROM editable_revisions WHERE work_id=%s ORDER BY revision DESC LIMIT 1",(wid,))
+                    row=cur.fetchone()
+            if not row:return jsonify(error='作品不存在。'),404
+            with Image.open(io.BytesIO(base64.b64decode(row[0],validate=True))) as image:
+                image.thumbnail((240,280))
+                output=io.BytesIO();image.save(output,'PNG');output.seek(0)
+            return send_file(output,mimetype='image/png')
+        finally:conn.close()
     @app.route('/editor-api/works/<wid>',methods=['GET','POST'])
     @protected
     def work(wid):
