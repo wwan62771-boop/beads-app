@@ -88,14 +88,38 @@ def register(app,connect):
         if not data or not hmac.compare_digest(request.form.get('csrf',''),data['csrf']):return '页面验证失效',403
         response=make_response(redirect('/editor/login'));response.delete_cookie('private_editor',path='/');return response
     def read_works():
-        conn=connect()
+        conn = connect()
         try:
             with conn:
                 with conn.cursor() as cur:
                     schema(cur)
-                    cur.execute("SELECT work_id,revision,jsonb_build_object('name',bundle::jsonb->'name','series',bundle::jsonb->'series','entries',(SELECT jsonb_agg(jsonb_build_object('project',jsonb_build_object('W',entry->'project'->'W','H',entry->'project'->'H','paletteId',entry->'project'->'paletteId'))) FROM jsonb_array_elements(bundle::jsonb->'entries') entry))::text FROM (SELECT DISTINCT ON(work_id) work_id,revision,bundle FROM editable_revisions ORDER BY work_id,revision DESC) latest ORDER BY work_id LIMIT 200")
-                    return [dict(id=row[0],revision=row[1],bundle=json.loads(row[2])) for row in cur.fetchall()]
-        finally:conn.close()
+                with conn.cursor(name='editable_work_list') as cur:
+                    cur.itersize = 1
+                    cur.execute("""
+                        WITH latest AS MATERIALIZED (
+                            SELECT DISTINCT ON (work_id) work_id, revision
+                            FROM editable_revisions
+                            ORDER BY work_id, revision DESC
+                            LIMIT 200
+                        )
+                        SELECT latest.work_id, latest.revision, stored.bundle
+                        FROM latest
+                        JOIN editable_revisions AS stored USING (work_id, revision)
+                        ORDER BY latest.work_id
+                    """)
+                    items = []
+                    for work_id, revision, raw_bundle in cur:
+                        bundle = json.loads(raw_bundle)
+                        entries = [
+                            {'project': {key: entry['project'].get(key)
+                                         for key in ('W', 'H', 'paletteId')}}
+                            for entry in bundle['entries']
+                        ]
+                        items.append(dict(id=work_id, revision=revision, bundle=dict(
+                            name=bundle.get('name'), series=bundle.get('series'), entries=entries)))
+                    return items
+        finally:
+            conn.close()
     @app.get('/editor')
     def index():
         data=session_data() if len(token())>=32 else None
@@ -117,10 +141,10 @@ def register(app,connect):
             with conn:
                 with conn.cursor() as cur:
                     schema(cur)
-                    cur.execute("SELECT bundle::jsonb->'entries'->0->>'png' FROM editable_revisions WHERE work_id=%s ORDER BY revision DESC LIMIT 1",(wid,))
+                    cur.execute("SELECT bundle FROM editable_revisions WHERE work_id=%s ORDER BY revision DESC LIMIT 1",(wid,))
                     row=cur.fetchone()
             if not row:return jsonify(error='作品不存在。'),404
-            with Image.open(io.BytesIO(base64.b64decode(row[0],validate=True))) as image:
+            with Image.open(io.BytesIO(base64.b64decode(json.loads(row[0])['entries'][0]['png'],validate=True))) as image:
                 image.thumbnail((240,280))
                 output=io.BytesIO();image.save(output,'PNG');output.seek(0)
             return send_file(output,mimetype='image/png')
