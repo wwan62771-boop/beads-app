@@ -1,6 +1,7 @@
 """Validate portable editable drawings before storing or importing them."""
 import base64,hashlib,io,json,re
 from PIL import Image
+from project_palettes import resolve_project_palette
 
 LIMIT=60*1024*1024
 def validate_bundle(bundle):
@@ -23,6 +24,8 @@ def validate_bundle(bundle):
         palette=project.get('paletteId','291');bead=project.get('beadSize',2.6)
         if palette not in ('221','291','perler','hama','artkal') or bead not in (2.5,2.6,5):
             raise ValueError('色卡或豆子规格无效。')
+        colors=resolve_project_palette(project)
+        codes={color['code'] for color in colors}
         signature=(w,h,palette,bead)
         if signature in signatures:raise ValueError('规格重复。')
         signatures.add(signature)
@@ -34,8 +37,9 @@ def validate_bundle(bundle):
             mapping=dict(project['mapping'])
             if len(project['mapping'])>173056 or len(project['overrides'])>173056:raise ValueError()
             if any(not isinstance(key,str) or not re.fullmatch('#[0-9a-fA-F]{6}',key) or not isinstance(value,dict) or not isinstance(value.get('code'),str) for key,value in mapping.items()):raise ValueError()
+            if any(value['code'] not in codes for value in mapping.values()):raise ValueError()
             if any(value is not None and (not isinstance(value,str) or value not in mapping) for value in project['grid']):raise ValueError()
-            if any(type(index) is not int or not 0<=index<w*h or (code is not None and not isinstance(code,str)) for index,code in project['overrides']):raise ValueError()
+            if any(type(index) is not int or not 0<=index<w*h or (code is not None and (not isinstance(code,str) or code not in codes)) for index,code in project['overrides']):raise ValueError()
         except (TypeError,ValueError):raise ValueError('项目配色或改色数据无效。')
         reference=project.get('reference')
         if not isinstance(reference,str) or not reference.startswith('data:image/png;base64,') or len(reference)>30_000_000:raise ValueError('项目参考图无效。')
